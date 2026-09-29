@@ -1,0 +1,39 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# Microsoft Office temporary lock files
+~$*.docx
+~$*.pptx
+~$*.xlsx
+
+# Large reference textbook PDFs (900+ MB)
+src/1/
+*.pdf
+
+# Local backup archives and directories
+backups/
+
+# Staging and sandbox temporary folders
+staging_dl/
+sandbox_*/
+
+# Virtual Environments
+venv/
+env/
+.env
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Scratch and temporary scripts
+scratch/
+tmp/
+*.tmp

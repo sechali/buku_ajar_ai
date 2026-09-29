@@ -1,0 +1,444 @@
+import json
+import os
+import sys
+
+notebook = {
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "<a href=\"https://colab.research.google.com/\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>\n",
+    "\n",
+    "# AI Modul 3.4: Praktikum Variabel dan Tipe Data\n",
+    "### Model Memori Referensi Objek PyObject, Paradigma Dynamic & Strong Typing, Taksonomi Tipe Data Skalar, Audit Presisi Numerik IEEE 754, dan Pengolahan Telemetri Sensorik Perkebunan\n",
+    "\n",
+    "---\n",
+    "\n",
+    "> **Diktat Terkait:** [AI_Modul_3.4_Variabel_dan_Tipe_Data.md](../../docs/part-03/AI_Modul_3.4_Variabel_dan_Tipe_Data.md)  \n",
+    "> **Outputs:** Skrip inspeksi jejak memori CPython (`id()`, `sys.getrefcount()`, `sys.getsizeof()`), modul sanitasi telemetri sensorik multivariat defensif, serta pustaka pembanding presisi numerik IEEE 754.  \n",
+    "> **Outcomes:** Mahasiswa menguasai konsep *reference binding*, memahami imutabilitas objek skalar, terampil menangani data hilang (*missing values / None*), dan mampu mengatasi galat pembulatan fraksi desimal biner.  \n",
+    "> **Impacts:** Terjaminnya integritas komputasi metrik agrikultur cerdas, optimalisasi alokasi memori RAM pada *Edge AI IoT*, dan kesiapan menuju manipulasi tensor machine learning.\n",
+    ">\n",
+    "> **Tujuan Praktikum:**  \n",
+    "> 1. Memverifikasi alamat memori dan pencacah referensi `PyObject` di Heap.  \n",
+    "> 2. Menguji fenomena *Small Integer Interning* dan keterbatasan fraksi biner IEEE 754 (`0.1 + 0.2 != 0.3`).  \n",
+    "> 3. Mengaudit jejak alokasi byte fisik tipe skalar menggunakan `sys.getsizeof()`.  \n",
+    "> 4. Menjalankan pipeline sanitasi data telemetri iklim mikro perkebunan sawit (`SanitizerTelemetriKebun`).  \n",
+    "> 5. Menyelesaikan 3 tantangan: sanitasi parameter tanah, audit presisi pecahan apung, dan pelacak jejak memori rekursif."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 1. Persiapan Environment & Pemuatan Library\n",
+    "Jalankan sel berikut untuk memuat pustaka inspeksi memori CPython dan modul visualisasi:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import sys\n",
+    "import math\n",
+    "import decimal\n",
+    "from dataclasses import dataclass\n",
+    "from typing import Any, Dict, List, Optional, Tuple\n",
+    "\n",
+    "# Modul numerik & visualisasi\n",
+    "import numpy as np\n",
+    "import matplotlib\n",
+    "matplotlib.use('Agg')\n",
+    "import matplotlib.pyplot as plt\n",
+    "\n",
+    "# Konfigurasi visualisasi grafik\n",
+    "plt.style.use('seaborn-v0_8-whitegrid' if 'seaborn-v0_8-whitegrid' in plt.style.available else 'default')\n",
+    "plt.rcParams['figure.dpi'] = 120\n",
+    "plt.rcParams['font.size'] = 10\n",
+    "\n",
+    "print(\"[OK] Seluruh pustaka dasar dan analitika berhasil diinisialisasi.\")\n",
+    "print(f\"[INFO] Arsitektur Pointer CPython: {sys.maxsize.bit_length() + 1}-Bit\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 2. Eksplorasi Arsitektur Memori PyObject: Identitas, Tipe, & Referensi\n",
+    "Membuktikan secara empiris bahwa variabel Python adalah label referensi (*pointer binding*) menuju `PyObject` di memori Heap, bukan wadah penyimpan nilai fisik."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Demonstrasi Reference Binding\n",
+    "suhu_awal = 31.75\n",
+    "bacaan_sensor = suhu_awal  # Mengikat label kedua ke objek float yang sama\n",
+    "\n",
+    "print(\"=== ANALISIS ARSITEKTUR MEMORI PYOBJECT ===\")\n",
+    "print(f\"Nilai suhu_awal     : {suhu_awal} | Alamat Memori (id): {hex(id(suhu_awal))}\")\n",
+    "print(f\"Nilai bacaan_sensor : {bacaan_sensor} | Alamat Memori (id): {hex(id(bacaan_sensor))}\")\n",
+    "print(f\"Apakah Menunjuk ke Objek yang Sama? (is) : {suhu_awal is bacaan_sensor}\")\n",
+    "print(f\"Apakah Nilainya Sama? (==)              : {suhu_awal == bacaan_sensor}\")\n",
+    "\n",
+    "# Pembuktian Imutabilitas Skalar: Mengubah nilai suhu_awal\n",
+    "suhu_awal = suhu_awal + 0.5\n",
+    "print(\"\\nSetelah dilakukan penambahan (suhu_awal = suhu_awal + 0.5):\")\n",
+    "print(f\"suhu_awal baru      : {suhu_awal} | Alamat Memori Baru : {hex(id(suhu_awal))}\")\n",
+    "print(f\"bacaan_sensor lama  : {bacaan_sensor} | Alamat Memori Tetap: {hex(id(bacaan_sensor))}\")\n",
+    "print(f\"Apakah Masih Menunjuk Objek Sama? (is)  : {suhu_awal is bacaan_sensor}\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 3. Investigasi Integer Interning & Presisi Pecahan Apung IEEE 754\n",
+    "Menguji perilaku caching bilangan bulat kecil (`-5` s/d `256`) serta mengaudit anomali representasi biner pecahan desimal (`0.1 + 0.2 != 0.3`)."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# 1. Eksperimen Small Integer Interning Cache\n",
+    "int_a = 256\n",
+    "int_b = 256\n",
+    "print(\"=== 1. SMALL INTEGER INTERNING CACHE ===\")\n",
+    "print(f\"int_a = {int_a} (id: {id(int_a)}) | int_b = {int_b} (id: {id(int_b)})\")\n",
+    "print(f\"int_a is int_b (Rentang Cache <= 256) : {int_a is int_b}\")\n",
+    "\n",
+    "# 2. Eksperimen Keterbatasan Presisi Pecahan Biner IEEE 754\n",
+    "f1 = 0.1\n",
+    "f2 = 0.2\n",
+    "f_hasil = f1 + f2\n",
+    "\n",
+    "print(\"\\n=== 2. AUDIT PRESISI FRAKSI DESIMAL BINER IEEE 754 ===\")\n",
+    "print(f\"0.1 + 0.2 Hasil Standar   : {f_hasil}\")\n",
+    "print(f\"Format Presisi Tinggi (55): {f_hasil:.55f}\")\n",
+    "print(f\"Evaluasi 0.1 + 0.2 == 0.3 : {f_hasil == 0.3} (Anomali Biner)\")\n",
+    "print(f\"Evaluasi via math.isclose : {math.isclose(f_hasil, 0.3, rel_tol=1e-9)} (Solusi Toleransi Sains)\")\n",
+    "\n",
+    "# 3. Solusi Presisi Mutlak Menggunakan decimal.Decimal\n",
+    "d1 = decimal.Decimal(\"0.1\")\n",
+    "d2 = decimal.Decimal(\"0.2\")\n",
+    "d_hasil = d1 + d2\n",
+    "print(f\"Solusi Finansial (Decimal): {d1} + {d2} == {d_hasil} -> {d_hasil == decimal.Decimal('0.3')}\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 4. Audit Jejak Alokasi Memori Fisik Skalar (`sys.getsizeof`)\n",
+    "Membandingkan konsumsi byte memori antara tipe data skalar Python untuk memahami beban alokasi RAM pada perangkat tepi (*Edge AI*)."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "tipe_sampel = [\n",
+    "    (\"Integer 0\", 0),\n",
+    "    (\"Integer Kecil (100)\", 100),\n",
+    "    (\"Integer Raksasa (2**100)\", 2**100),\n",
+    "    (\"Float (31.75)\", 31.75),\n",
+    "    (\"Boolean (True)\", True),\n",
+    "    (\"NoneType (None)\", None),\n",
+    "    (\"String Kosong ('')\", \"\"),\n",
+    "    (\"String Kode ('BLOK-A01')\", \"BLOK-A01\"),\n",
+    "]\n",
+    "\n",
+    "nama_labels = []\n",
+    "ukuran_bytes = []\n",
+    "\n",
+    "print(\"=== KONSUMSI MEMORI FISIK STRUKTUR PYOBJECT (64-BIT) ===\")\n",
+    "print(f\"{'Tipe Data':<28} | {'Ukuran Fisik (Byte)':<20} | {'Tipe Kelas'}\")\n",
+    "print(\"-\" * 68)\n",
+    "\n",
+    "for label, obj in tipe_sampel:\n",
+    "    sz = sys.getsizeof(obj)\n",
+    "    nama_labels.append(label)\n",
+    "    ukuran_bytes.append(sz)\n",
+    "    print(f\"{label:<28} | {sz:<20} | {type(obj)}\")\n",
+    "\n",
+    "# Visualisasi Grafik Jejak Memori\n",
+    "fig, ax = plt.subplots(figsize=(8.5, 4.5))\n",
+    "bars = ax.barh(nama_labels, ukuran_bytes, color='steelblue', edgecolor='black', height=0.6)\n",
+    "ax.set_xlabel('Ukuran Alokasi RAM (Byte)', fontweight='bold')\n",
+    "ax.set_title('Jejak Alokasi Memori Fisik Objek Skalar Python (sys.getsizeof)', fontweight='bold', fontsize=11)\n",
+    "\n",
+    "for bar in bars:\n",
+    "    w = bar.get_width()\n",
+    "    ax.text(w + 0.8, bar.get_y() + bar.get_height()/2., f'{w} B', va='center', fontweight='bold', fontsize=8.5)\n",
+    "\n",
+    "plt.tight_layout()\n",
+    "plt.savefig('docs/assets/jejak_memori_tipe_skalar.png', dpi=150)\n",
+    "print(\"\\n[INFO] Grafik alokasi memori berhasil disimpan ke 'docs/assets/jejak_memori_tipe_skalar.png'.\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 5. Implementasi Terpadu Pipeline Industri: `SanitizerTelemetriKebun`\n",
+    "Mengeksekusi sistem pembersihan dan standarisasi tipe data telemetri agroklimat perkebunan sawit terintegrasi."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "@dataclass(frozen=True)\n",
+    "class RekamanTelemetriMentah:\n",
+    "    id_stasiun: Any\n",
+    "    suhu_udara: Any\n",
+    "    kelembaban_tanah: Any\n",
+    "    curah_hujan: Any\n",
+    "    status_pompa: Any\n",
+    "\n",
+    "@dataclass(frozen=True)\n",
+    "class TelemetriTersanitasi:\n",
+    "    id_stasiun: str\n",
+    "    suhu_udara_c: float\n",
+    "    kelembaban_tanah_pct: float\n",
+    "    curah_hujan_mm: float\n",
+    "    status_pompa_aktif: bool\n",
+    "    memiliki_imputasi: bool\n",
+    "\n",
+    "class SanitizerTelemetriKebun:\n",
+    "    SUHU_DEFAULT_C: float = 27.5\n",
+    "    KELEMBABAN_DEFAULT_PCT: float = 65.0\n",
+    "\n",
+    "    @classmethod\n",
+    "    def konversi_ke_float_aman(cls, nilai_mentah: Any, nilai_baku: float) -> Tuple[float, bool]:\n",
+    "        if nilai_mentah is None:\n",
+    "            return nilai_baku, True\n",
+    "        if isinstance(nilai_mentah, (int, float)):\n",
+    "            return float(nilai_mentah), False\n",
+    "        if isinstance(nilai_mentah, str):\n",
+    "            teks = nilai_mentah.strip()\n",
+    "            if not teks or teks.upper() in [\"NULL\", \"NAN\", \"NA\", \"ERR\"]:\n",
+    "                return nilai_baku, True\n",
+    "            try:\n",
+    "                return float(teks), False\n",
+    "            except ValueError:\n",
+    "                return nilai_baku, True\n",
+    "        return nilai_baku, True\n",
+    "\n",
+    "    @classmethod\n",
+    "    def konversi_ke_bool_aman(cls, nilai_mentah: Any) -> bool:\n",
+    "        if isinstance(nilai_mentah, bool):\n",
+    "            return nilai_mentah\n",
+    "        if isinstance(nilai_mentah, (int, float)):\n",
+    "            return bool(nilai_mentah != 0)\n",
+    "        if isinstance(nilai_mentah, str):\n",
+    "            teks = nilai_mentah.strip().upper()\n",
+    "            return teks in [\"TRUE\", \"1\", \"ON\", \"AKTIF\", \"YES\"]\n",
+    "        return False\n",
+    "\n",
+    "    def proses_batch_telemetri(self, kumpulan_data: List[RekamanTelemetriMentah]) -> List[TelemetriTersanitasi]:\n",
+    "        hasil = []\n",
+    "        for item in kumpulan_data:\n",
+    "            id_str = str(item.id_stasiun).strip().upper() if item.id_stasiun else \"STASIUN_ANONIM\"\n",
+    "            s_f, imp_s = self.konversi_ke_float_aman(item.suhu_udara, self.SUHU_DEFAULT_C)\n",
+    "            rh_f, imp_rh = self.konversi_ke_float_aman(item.kelembaban_tanah, self.KELEMBABAN_DEFAULT_PCT)\n",
+    "            h_f, imp_h = self.konversi_ke_float_aman(item.curah_hujan, 0.0)\n",
+    "            p_b = self.konversi_ke_bool_aman(item.status_pompa)\n",
+    "            imputasi = imp_s or imp_rh or imp_h\n",
+    "            \n",
+    "            hasil.append(TelemetriTersanitasi(\n",
+    "                id_stasiun=id_str,\n",
+    "                suhu_udara_c=round(s_f, 2),\n",
+    "                kelembaban_tanah_pct=round(rh_f, 2),\n",
+    "                curah_hujan_mm=round(h_f, 2),\n",
+    "                status_pompa_aktif=p_b,\n",
+    "                memiliki_imputasi=imputasi\n",
+    "            ))\n",
+    "        return hasil\n",
+    "\n",
+    "# Eksekusi Sanitasi Data Lapang\naliran_mentah = [\n",
+    "    RekamanTelemetriMentah(\"WS-01\", \"29.40\", \"62.5\", \"0.0\", \"ON\"),\n",
+    "    RekamanTelemetriMentah(\"WS-01\", 31.2, None, \"12.5\", 1),\n",
+    "    RekamanTelemetriMentah(\"WS-02\", \"ERR\", \"78.0\", \"0.0\", \"False\"),\n",
+    "    RekamanTelemetriMentah(None, \"27.8\", \" 55.4 \", None, \"AKTIF\"),\n",
+    "    RekamanTelemetriMentah(\"WS-03\", 26.5, 88.0, 45.0, False),\n",
+    "]\n",
+    "\n",
+    "sanitizer = SanitizerTelemetriKebun()\n",
+    "laporan_bersih = sanitizer.proses_batch_telemetri(aliran_mentah)\n",
+    "\n",
+    "print(\"=== LAPORAN HASIL SANITASI TELEMETRI KEBUN SAWIT ===\")\n",
+    "for d in laporan_bersih:\n",
+    "    st = \"[TERIMPUTASI]\" if d.memiliki_imputasi else \"[ASLI]\"\n",
+    "    p_status = \"HIDUP\" if d.status_pompa_aktif else \"MATI\"\n",
+    "    print(f\"{d.id_stasiun:<14}: Suhu: {d.suhu_udara_c:<5}°C | RH: {d.kelembaban_tanah_pct:<5}% | Hujan: {d.curah_hujan_mm:<5} mm | Pompa: {p_status:<5} | {st}\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 6. Solusi Lengkap Tantangan Pemrograman Berjenjang\n",
+    "Berikut adalah implementasi komprehensif dari ketiga tantangan mandiri yang terdapat pada diktat perkuliahan:"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Tantangan 1 (Tingkat Dasar): Sanitasi Parameter Sensor Tanah dengan Imputasi Rerata\n",
+    "Membersihkan deret data kelembaban tanah mentah dari string dan nilai null menjadi float tervalidasi."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def sanitasi_telemetri_sensor(daftar_mentah: List[Any], nilai_fallback: float = 45.0) -> List[float]:\n",
+    "    \"\"\"\n",
+    "    Menyaring dan mengonversi daftar pembacaan sensor mentah menjadi list float bersih.\n",
+    "    \"\"\"\n",
+    "    hasil_float: List[float] = []\n",
+    "    for item in daftar_mentah:\n",
+    "        if item is None:\n",
+    "            hasil_float.append(nilai_fallback)\n",
+    "            continue\n",
+    "        if isinstance(item, (int, float)):\n",
+    "            hasil_float.append(float(item))\n",
+    "            continue\n",
+    "        if isinstance(item, str):\n",
+    "            teks = item.strip()\n",
+    "            try:\n",
+    "                hasil_float.append(float(teks))\n",
+    "            except ValueError:\n",
+    "                hasil_float.append(nilai_fallback)\n",
+    "        else:\n",
+    "            hasil_float.append(nilai_fallback)\n",
+    "    return hasil_float\n",
+    "\n",
+    "# Pengujian Tantangan 1\ndata_uji_t1 = [\"45.2\", \" 50.1 \", None, \"KORUP\", \"48.5\", \"NULL\"]\nhasil_t1 = sanitasi_telemetri_sensor(data_uji_t1, nilai_fallback=45.0)\n\nprint(\"=== TANTANGAN 1: SANITASI PARAMETER TANAH ===\")\nprint(f\"Data Mentah Sensor : {data_uji_t1}\")\nprint(f\"Data Hasil Bersih  : {hasil_t1}\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Tantangan 2 (Tingkat Menengah): Evaluator Presisi Pecahan Apung IEEE 754\n",
+    "Membandingkan kesetaraan dua bilangan floating-point secara langsung versus menggunakan toleransi relatif `math.isclose()`."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def audit_presisi_apung(nilai_a: float, nilai_b: float, toleransi: float = 1e-6) -> Dict[str, Any]:\n",
+    "    \"\"\"\n",
+    "    Mengevaluasi kesetaraan pecahan apung dengan memperhitungkan galat roundoff IEEE 754.\n",
+    "    \"\"\"\n",
+    "    sama_langsung = (nilai_a == nilai_b)\n",
+    "    sama_toleransi = math.isclose(nilai_a, nilai_b, abs_tol=toleransi)\n",
+    "    delta_residu = abs(nilai_a - nilai_b)\n",
+    "    \n",
+    "    return {\n",
+    "        \"nilai_a\": nilai_a,\n",
+    "        \"nilai_b\": nilai_b,\n",
+    "        \"kesetaraan_langsung_sama\": sama_langsung,\n",
+    "        \"kesetaraan_toleransi_isclose\": sama_toleransi,\n",
+    "        \"delta_residu_absolut\": delta_residu,\n",
+    "        \"status_analisis\": \"Identik Eksak\" if sama_langsung else (\"Setara Toleransi\" if sama_toleransi else \"Berbeda Signifikan\")\n",
+    "    }\n",
+    "\n",
+    "# Pengujian Tantangan 2\n",
+    "akumulasi_tbs_1 = 0.1 + 0.1 + 0.1\n",
+    "akumulasi_tbs_2 = 0.3\n",
+    "laporan_t2 = audit_presisi_apung(akumulasi_tbs_1, akumulasi_tbs_2)\n",
+    "\n",
+    "print(\"=== TANTANGAN 2: AUDIT PRESISI PECAHAN APUNG ===\")\n",
+    "print(f\"Nilai Akumulasi 1 : {laporan_t2['nilai_a']:.20f}\")\n",
+    "print(f\"Nilai Akumulasi 2 : {laporan_t2['nilai_b']:.20f}\")\n",
+    "print(f\"Evaluasi Langsung (==)      : {laporan_t2['kesetaraan_langsung_sama']}\")\n",
+    "print(f\"Evaluasi Toleransi (isclose): {laporan_t2['kesetaraan_toleransi_isclose']}\")\n",
+    "print(f\"Residu Pembulatan Biner     : {laporan_t2['delta_residu_absolut']:.2e}\")\n",
+    "print(f\"Status Hasil Akhir          : {laporan_t2['status_analisis']}\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Tantangan 3 (Tingkat Mahir): Pelacak Jejak Memori Fisik & Siklus Hidup Objek Sensor\n",
+    "Membangun kelas `MemoryFootprintTracker` untuk menghitung konsumsi memori rekursif dan menganalisis reference count."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "class MemoryFootprintTracker:\n",
+    "    \"\"\"\n",
+    "    Alat pelacak alokasi byte memori fisik struktur data dan inspeksi siklus hidup objek.\n",
+    "    \"\"\"\n",
+    "    @staticmethod\n",
+    "    def hitung_total_memori(koleksi_data: Any) -> int:\n",
+    "        \"\"\"Menghitung total byte alokasi RAM secara rekursif.\"\"\"\n",
+    "        total = sys.getsizeof(koleksi_data)\n",
+    "        if isinstance(koleksi_data, (list, tuple, set)):\n",
+    "            for elemen in koleksi_data:\n",
+    "                total += MemoryFootprintTracker.hitung_total_memori(elemen)\n",
+    "        elif isinstance(koleksi_data, dict):\n",
+    "            for k, v in koleksi_data.items():\n",
+    "                total += MemoryFootprintTracker.hitung_total_memori(k)\n",
+    "                total += MemoryFootprintTracker.hitung_total_memori(v)\n",
+    "        return total\n",
+    "\n",
+    "    @staticmethod\n",
+    "    def inspeksi_objek(nama_label: str, target_objek: Any) -> Dict[str, Any]:\n",
+    "        \"\"\"Mengaudit alamat memori, tipe data, dan pencacah referensi.\"\"\"\n",
+    "        # getrefcount mengembalikan +1 karena target_objek dilewatkan sebagai argumen fungsi\n",
+    "        ref_count = sys.getrefcount(target_objek) - 1\n",
+    "        return {\n",
+    "            \"label\": nama_label,\n",
+    "            \"alamat_memori\": hex(id(target_objek)),\n",
+    "            \"tipe_kelas\": str(type(target_objek)),\n",
+    "            \"ukuran_byte\": sys.getsizeof(target_objek),\n",
+    "            \"pencacah_referensi\": ref_count\n",
+    "        }\n",
+    "\n",
+    "# Pengujian Tantangan 3\ntracker = MemoryFootprintTracker()\ndata_telemetri_nested = {\n    \"blok\": \"BLOK-A01\",\n    \"telemetri\": [28.5, 30.1, 29.8],\n    \"status\": {\"aktif\": True, \"kode\": 101}\n}\n\ntotal_ram = tracker.hitung_total_memori(data_telemetri_nested)\naudit_obj = tracker.inspeksi_objek(\"Data Telemetri Nested\", data_telemetri_nested)\n\nprint(\"=== TANTANGAN 3: AUDITOR MEMORI REKURSIF ===\")\nprint(f\"Alamat Memori (Heap) : {audit_obj['alamat_memori']}\")\nprint(f\"Ukuran Dictionary Luar : {audit_obj['ukuran_byte']} byte\")\nprint(f\"Total RAM Rekursif     : {total_ram} byte (Termasuk seluruh sub-elemen)\")\nprint(f\"Pencacah Referensi     : {audit_obj['pencacah_referensi']} referensi aktif\")"
+   ]
+  }
+ ],
+ "metadata": {
+  "language_info": {
+   "name": "python"
+  },
+  "orig_nbformat": 4
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
+
+output_path = "notebooks/part-03/AI_Modul_3.4_Praktikum_Variabel_dan_Tipe_Data.ipynb"
+with open(output_path, "w", encoding="utf-8") as f:
+    json.dump(notebook, f, indent=1, ensure_ascii=False)
+
+print(f"[BERHASIL] File Jupyter Notebook tersimpan di: {output_path}")

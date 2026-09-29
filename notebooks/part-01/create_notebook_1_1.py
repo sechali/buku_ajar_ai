@@ -1,0 +1,485 @@
+import json
+
+notebook = {
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "<a href=\"https://colab.research.google.com/\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>\n",
+    "\n",
+    "# AI Modul 1.1: Praktikum Konsep Dasar Artificial Intelligence\n",
+    "### Simulasi dan Evaluasi Kinerja Agen Cerdas (*Intelligent Agents & Environment*)\n",
+    "\n",
+    "---\n",
+    "\n",
+    "> **Diktat Terkait:** [AI_Modul_1.1_Konsep_Dasar_Artificial_Intelligence.md](../../docs/part-01/AI_Modul_1.1_Konsep_Dasar_Artificial_Intelligence.md)  \n",
+    "> **Outputs:** Kode program simulasi agen Python dengan komentar per baris, tabel matriks PEAS terverifikasi, dan grafik visual komparasi performa reward 3 agen.  \n",
+    "> **Outcomes:** Kemampuan merancang logika agen rasional, mengidentifikasi kelemahan reflex agent, dan mengevaluasi efisiensi energi aktuator secara empiris.  \n",
+    "> **Impacts:** Terbentuknya keterampilan rekayasa awal dalam membangun sistem kendali otomatis berdaya guna tinggi pada sektor pertanian dan monitoring cerdas.  \n",
+    ">\n",
+    "> **Tujuan Pembelajaran:**  \n",
+    "> 1. Memahami interaksi persepsi-tindakan antara agen dengan lingkungannya secara terprogram baris-per-baris.  \n",
+    "> 2. Mengimplementasikan tiga arsitektur agen: *Random Agent*, *Simple Reflex Agent*, dan *Model-Based Reflex Agent*.  \n",
+    "> 3. Mengukur dan membandingkan performa utilitas agen secara empiris menggunakan grafik visual."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 1. Persiapan Environment & Import Library\n",
+    "Jalankan sel di bawah ini untuk mengimpor library standar yang dibutuhkan. Setiap baris kode memiliki fungsi spesifik:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Mengimpor modul sys untuk mengakses informasi sistem operasi dan versi Python\n",
+    "import sys\n",
+    "\n",
+    "# Mengimpor modul random untuk menghasilkan angka acak dalam simulasi stokastik\n",
+    "import random\n",
+    "\n",
+    "# Mengimpor modul numpy untuk komputasi array numerik dan kalkulasi rata-rata skor\n",
+    "import numpy as np\n",
+    "\n",
+    "# Mengimpor modul pyplot dari matplotlib untuk visualisasi grafik performa agen\n",
+    "import matplotlib.pyplot as plt\n",
+    "\n",
+    "# Mengimpor Dict, List, Tuple dari typing untuk dokumentasi tipe data fungsi (type-hinting)\n",
+    "from typing import Dict, List, Tuple\n",
+    "\n",
+    "# Menampilkan versi interpreter Python yang sedang aktif\n",
+    "print(f\"Python Version : {sys.version.split()[0]}\")\n",
+    "\n",
+    "# Menampilkan pesan konfirmasi bahwa seluruh library berhasil dimuat\n",
+    "print(\"Environment siap digunakan untuk simulasi agen AI!\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Pembahasan Penggunaan Kode 1:\n",
+    "- `random`: Dibutuhkan karena lingkungan dunia nyata bersifat nondeterministik / stokastik (ada faktor ketidakpastian hama datang tiba-tiba).\n",
+    "- `numpy`: Digunakan untuk merata-ratakan skor kumulatif dari 30 kali uji coba simulasi (`np.mean`) agar kurva performa tidak bias oleh fluktuasi acak.\n",
+    "- `typing`: Standar industri rekayasa perangkat lunak modern untuk mencegah bug salah tipe data."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 2. Pemodelan Lingkungan Kebun (Plantation Environment)\n",
+    "Kita memodelkan sebuah area perkebunan 2-petak (`'A'` dan `'B'`).\n",
+    "Setiap baris kode di bawah ini memodelkan hukum fisika dan aturan imbalan (*reward*) lingkungan:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "class PlantationEnvironment:\n",
+    "    \"\"\"Kelas simulasi lingkungan kebun dua petak A dan B.\"\"\"\n",
+    "    \n",
+    "    def __init__(self):\n",
+    "        # Baris ini menginisialisasi status awal petak A dan B secara acak (BERSIH atau TERSERANG_HAMA)\n",
+    "        self.locations: Dict[str, str] = {\n",
+    "            'A': random.choice(['BERSIH', 'TERSERANG_HAMA']),\n",
+    "            'B': random.choice(['BERSIH', 'TERSERANG_HAMA'])\n",
+    "        }\n",
+    "        # Baris ini menetapkan posisi awal agen di Petak A saat simulasi baru dimulai\n",
+    "        self.agent_location: str = 'A'\n",
+    "        \n",
+    "    def get_percept(self) -> Tuple[str, str]:\n",
+    "        \"\"\"Sensor mengembalikan pasangan data persepsi: (lokasi_saat_ini, status_petak_terkini)\"\"\"\n",
+    "        # Mengembalikan tupel lokasi fisik agen dan kondisi kesehatan tanaman di petak tersebut\n",
+    "        return (self.agent_location, self.locations[self.agent_location])\n",
+    "    \n",
+    "    def execute_action(self, action: str) -> int:\n",
+    "        \"\"\"Aktuator mengeksekusi aksi fisik dan mengembalikan nilai utilitas (reward/penalti).\"\"\"\n",
+    "        # Variabel penyimpan poin imbalan atau penalti pada langkah waktu ini\n",
+    "        reward: int = 0\n",
+    "        # Menyimpan referensi petak tempat agen berdiri saat ini\n",
+    "        current_loc: str = self.agent_location\n",
+    "        \n",
+    "        # Kasus jika agen memerintahkan penyemprotan pestisida\n",
+    "        if action == 'SEMPROT':\n",
+    "            # Memeriksa apakah petak memang benar sedang terserang hama\n",
+    "            if self.locations[current_loc] == 'TERSERANG_HAMA':\n",
+    "                # Mengubah status petak menjadi bersih setelah disemprot pestisida\n",
+    "                self.locations[current_loc] = 'BERSIH'\n",
+    "                # Memberikan reward positif +10 karena berhasil membasmi hama tanaman\n",
+    "                reward += 10\n",
+    "            else:\n",
+    "                # Memberikan penalti -5 karena menyemprot racun kimia pada tanaman yang sehat (pemborosan)\n",
+    "                reward -= 5\n",
+    "                \n",
+    "        # Kasus jika agen bergerak ke kanan menuju petak B\n",
+    "        elif action == 'KANAN':\n",
+    "            # Memperbarui posisi koordinat fisik agen menjadi di petak B\n",
+    "            self.agent_location = 'B'\n",
+    "            # Memberikan pinalti -1 sebagai biaya konsumsi bahan bakar/daya baterai motor penggerak\n",
+    "            reward -= 1\n",
+    "            \n",
+    "        # Kasus jika agen bergerak ke kiri menuju petak A\n",
+    "        elif action == 'KIRI':\n",
+    "            # Memperbarui posisi koordinat fisik agen menjadi di petak A\n",
+    "            self.agent_location = 'A'\n",
+    "            # Memberikan pinalti -1 sebagai biaya energi mekanik pergerakan\n",
+    "            reward -= 1\n",
+    "            \n",
+    "        # Kasus jika agen memilih berdiam diri di tempat\n",
+    "        elif action == 'DIAM':\n",
+    "            # Poin netral (0) karena agen tidak mengonsumsi energi baterai tambahan\n",
+    "            reward += 0\n",
+    "            \n",
+    "        # Dinamika stokastik alam: setiap petak bersih memiliki probabilitas 15% terinfeksi hama baru\n",
+    "        for loc in self.locations:\n",
+    "            # Jika petak saat ini bersih dan angka acak memenuhi probabilitas infeksi (< 0.15)\n",
+    "            if self.locations[loc] == 'BERSIH' and random.random() < 0.15:\n",
+    "                # Hama baru muncul kembali di petak tersebut\n",
+    "                self.locations[loc] = 'TERSERANG_HAMA'\n",
+    "                \n",
+    "        # Mengembalikan nilai skor reward hasil aksi ke sistem evaluasi\n",
+    "        return reward"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Pembahasan Penggunaan Kode 2:\n",
+    "- `get_percept()`: Merefleksikan antarmuka sensor yang mengubah kondisi analog dunia menjadi sinyal digital `Tuple[str, str]`.\n",
+    "- `execute_action()`: Merefleksikan fungsi aktuator. Perhatikan adanya kalkulasi **Reward (+10, -5, -1)** yang merupakan representasi dari pengukuran performa (*Performance Measure* $\\mathcal{U}$) pada kerangka PEAS.\n",
+    "- Peluang 15% hama muncul kembali mensimulasikan lingkungan yang dinamis (*dynamic environment*) di mana agen tidak boleh berasumsi dunia akan bersih selamanya."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 3. Implementasi Tiga Arsitektur Agen Cerdas\n",
+    "\n",
+    "### A. Agen Acak (Random Agent)\n",
+    "Agen baseline tanpa kecerdasan yang memilih tindakan secara acak murni dari ruang aksi $\\mathcal{A}$."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "class RandomAgent:\n",
+    "    \"\"\"Agen acak yang mengabaikan masukan persepsi sensor.\"\"\"\n",
+    "    \n",
+    "    def __init__(self):\n",
+    "        # Mendefinisikan seluruh himpunan ruang tindakan yang diizinkan (Action Space A)\n",
+    "        self.actions: List[str] = ['SEMPROT', 'KANAN', 'KIRI', 'DIAM']\n",
+    "        \n",
+    "    def act(self, percept: Tuple[str, str]) -> str:\n",
+    "        \"\"\"Memilih aksi tanpa memproses informasi persepsi sama sekali.\"\"\"\n",
+    "        # Mengambil salah satu aksi secara acak murni menggunakan random.choice\n",
+    "        return random.choice(self.actions)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### B. Agen Refleks Sederhana (Simple Reflex Agent)\n",
+    "Agen yang hanya mendasarkan keputusan pada **persepsi saat ini** ($p_t$) dengan pemetaan kondisi-tindakan (*condition-action rules*)."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "class SimpleReflexAgent:\n",
+    "    \"\"\"Agen refleks yang merespon stimulus sesaat tanpa memori masa lalu.\"\"\"\n",
+    "    \n",
+    "    def act(self, percept: Tuple[str, str]) -> str:\n",
+    "        \"\"\"Fungsi keputusan f(p_t) -> Action.\"\"\"\n",
+    "        # Membongkar (unpacking) pasangan persepsi lokasi dan status tanaman dari sensor\n",
+    "        location, status = percept\n",
+    "        \n",
+    "        # Aturan Refleks 1: Jika petak saat ini ada hama, segera semprot\n",
+    "        if status == 'TERSERANG_HAMA':\n",
+    "            # Mengembalikan aksi semprot untuk membasmi hama di depan mata\n",
+    "            return 'SEMPROT'\n",
+    "        # Aturan Refleks 2: Jika berada di petak A dan sudah bersih, pindah ke kanan (petak B)\n",
+    "        elif location == 'A':\n",
+    "            # Mengembalikan aksi bergerak ke petak B\n",
+    "            return 'KANAN'\n",
+    "        # Aturan Refleks 3: Jika berada di petak B dan sudah bersih, pindah ke kiri (petak A)\n",
+    "        elif location == 'B':\n",
+    "            # Mengembalikan aksi bergerak ke petak A\n",
+    "            return 'KIRI'\n",
+    "            \n",
+    "        # Aksi fallback jika kondisi tidak terdefinisi\n",
+    "        return 'DIAM'"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### C. Agen Refleks Berbasis Model (Model-Based Reflex Agent)\n",
+    "Agen yang memiliki model internal dunia dan memori riwayat persepsi ($\\mathcal{P}^*$) sehingga mengetahui kondisi petak tetangga tanpa harus melihatnya terus-menerus."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "class ModelBasedAgent:\n",
+    "    \"\"\"Agen cerdas berbasis model internal keadaan dunia (World State).\"\"\"\n",
+    "    \n",
+    "    def __init__(self):\n",
+    "        # Menginisialisasi kamus memori internal tentang kondisi dunia (awalnya UNKNOWN)\n",
+    "        self.internal_model: Dict[str, str] = {'A': 'UNKNOWN', 'B': 'UNKNOWN'}\n",
+    "        \n",
+    "    def act(self, percept: Tuple[str, str]) -> str:\n",
+    "        \"\"\"Fungsi keputusan f(P*) -> Action dengan mempertimbangkan kondisi global dunia.\"\"\"\n",
+    "        # Membongkar pembacaan sensor saat ini\n",
+    "        location, status = percept\n",
+    "        \n",
+    "        # Memperbarui memori internal agen tentang kondisi petak tempat ia berada saat ini\n",
+    "        self.internal_model[location] = status\n",
+    "        \n",
+    "        # Jika lokasi ini ada hama, prioritaskan tindakan pembersihan\n",
+    "        if status == 'TERSERANG_HAMA':\n",
+    "            # Mengembalikan aksi semprot\n",
+    "            return 'SEMPROT'\n",
+    "        \n",
+    "        # Menentukan identitas petak sebelah (petak seberang)\n",
+    "        other_loc: str = 'B' if location == 'A' else 'A'\n",
+    "        \n",
+    "        # Memeriksa memori: apakah petak sebelah diketahui masih berhama atau belum pernah dikunjungi\n",
+    "        if self.internal_model[other_loc] != 'BERSIH':\n",
+    "            # Pindah ke petak sebelah yang masih memerlukan penanganan\n",
+    "            return 'KANAN' if location == 'A' else 'KIRI'\n",
+    "        \n",
+    "        # Rasionalitas tingkat tinggi: Jika SEMUA petak diketahui sudah bersih, agen memilih DIAM untuk menghemat energi\n",
+    "        return 'DIAM'"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Pembahasan Penggunaan Kode 3:\n",
+    "- Perbedaan vital terletak pada atribut `self.internal_model`: Agen model-based tidak mengalami \"kebutaan konteks\".\n",
+    "- Simple reflex agent akan terjebak dalam *infinite loop* bolak-balik A-B-A-B meskipun seluruh kebun sudah bersih, mengikis skor kumulatifnya karena terus terkena penalti energi `-1` per langkah."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 4. Eksekusi Simulasi Komparatif & Visualisasi Grafik\n",
+    "Fungsi di bawah ini menjalankan 30 kali uji coba (*Monte Carlo trials*) dengan masing-masing 50 langkah waktu untuk mengevaluasi konsistensi performa ketiga agen:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def run_simulation(AgentClass, num_steps: int = 50, trials: int = 30) -> np.ndarray:\n",
+    "    \"\"\"Fungsi runner untuk mengeksekusi simulasi berulang dan menghitung rata-rata skor.\"\"\"\n",
+    "    # List penampung riwayat skor dari setiap kali uji coba (trial)\n",
+    "    history_scores: List[List[int]] = []\n",
+    "    \n",
+    "    # Melakukan perulangan sebanyak jumlah uji coba (30 kali percobaan)\n",
+    "    for trial in range(trials):\n",
+    "        # Membuat instansiasi lingkungan baru dengan kondisi awal acak\n",
+    "        env = PlantationEnvironment()\n",
+    "        # Membuat instansiasi objek agen baru\n",
+    "        agent = AgentClass()\n",
+    "        # Variabel pelacak total akumulasi reward pada percobaan ini\n",
+    "        cumulative_score: int = 0\n",
+    "        # List pencatat skor setiap langkah waktu pada percobaan ini\n",
+    "        trial_history: List[int] = []\n",
+    "        \n",
+    "        # Menjalankan interaksi selama num_steps (50 langkah waktu)\n",
+    "        for step in range(num_steps):\n",
+    "            # SENSOR: Membaca persepsi terkini dari lingkungan\n",
+    "            percept = env.get_percept()\n",
+    "            # AGEN: Memutuskan aksi berdasarkan persepsi\n",
+    "            action = agent.act(percept)\n",
+    "            # AKTUATOR & LINGKUNGAN: Menjalankan aksi dan menerima skor utilitas\n",
+    "            reward = env.execute_action(action)\n",
+    "            # Menambahkan reward ke total kumulatif skor\n",
+    "            cumulative_score += reward\n",
+    "            # Merekam total skor pada detik ini ke jejak langkah\n",
+    "            trial_history.append(cumulative_score)\n",
+    "            \n",
+    "        # Menyimpan jejak langkah percobaan ini ke list komparasi\n",
+    "        history_scores.append(trial_history)\n",
+    "        \n",
+    "    # Menghitung nilai rata-rata (mean) secara vertikal per langkah waktu menggunakan numpy\n",
+    "    return np.mean(history_scores, axis=0)\n",
+    "\n",
+    "# Menetapkan durasi evaluasi langkah waktu sebanyak 50 tick\n",
+    "steps: int = 50\n",
+    "\n",
+    "# Menjalankan simulasi untuk Random Agent\n",
+    "score_random = run_simulation(RandomAgent, num_steps=steps)\n",
+    "# Menjalankan simulasi untuk Simple Reflex Agent\n",
+    "score_reflex = run_simulation(SimpleReflexAgent, num_steps=steps)\n",
+    "# Menjalankan simulasi untuk Model-Based Agent\n",
+    "score_model  = run_simulation(ModelBasedAgent, num_steps=steps)\n",
+    "\n",
+    "# Membuat kanvas gambar grafik dengan ukuran 10x6 inci dan resolusi 150 DPI\n",
+    "plt.figure(figsize=(10, 6), dpi=150)\n",
+    "\n",
+    "# Memplot kurva rata-rata performa Random Agent dengan garis putus-putus merah\n",
+    "plt.plot(score_random, label='Random Agent (Tanpa Logika)', color='crimson', linestyle='--', linewidth=1.8)\n",
+    "\n",
+    "# Memplot kurva rata-rata performa Simple Reflex Agent dengan garis biru\n",
+    "plt.plot(score_reflex, label='Simple Reflex Agent (Kondisi-Tindakan)', color='dodgerblue', linewidth=2.2)\n",
+    "\n",
+    "# Memplot kurva rata-rata performa Model-Based Agent dengan garis hijau tebal\n",
+    "plt.plot(score_model,  label='Model-Based Agent (Berbasis Memori Global)', color='forestgreen', linewidth=2.8)\n",
+    "\n",
+    "# Menambahkan judul grafik dengan cetak tebal\n",
+    "plt.title('Evaluasi Empiris Akumulasi Skor Utilitas Agen Cerdas (50 Langkah Waktu)', fontsize=12, fontweight='bold', pad=12)\n",
+    "\n",
+    "# Memberikan label sumbu horizontal (waktu per langkah)\n",
+    "plt.xlabel('Langkah Waktu Waktu Nyata (Time Steps)', fontsize=10)\n",
+    "\n",
+    "# Memberikan label sumbu vertikal (rata-rata akumulasi skor reward)\n",
+    "plt.ylabel('Rata-rata Skor Kinerja Kumulatif (Utility Score)', fontsize=10)\n",
+    "\n",
+    "# Menampilkan garis kisi-kisi (grid) titik-titik transparan untuk memudahkan pembacaan\n",
+    "plt.grid(True, linestyle=':', alpha=0.6)\n",
+    "\n",
+    "# Menampilkan kotak keterangan legenda di posisi terbaik\n",
+    "plt.legend(fontsize=10, loc='upper left')\n",
+    "\n",
+    "# Merapikan tata letak elemen grafik agar tidak terpotong\n",
+    "plt.tight_layout()\n",
+    "\n",
+    "# Merender dan menampilkan grafik ke layar notebook\n",
+    "plt.show()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Pembahasan Penggunaan Kode 4:\n",
+    "- `np.mean(..., axis=0)`: Menghitung rata-rata kolom demi kolom (rata-rata reward pada langkah 1, langkah 2, dst. di seluruh 30 trial). Ini merupakan metode baku eksperimen saintifik agar klaim keunggulan algoritma AI dapat dipertanggungjawabkan secara statistik (*statistically sound*).\n",
+    "- Kurva hijau (*Model-Based Agent*) menunjukkan pertumbuhan kemiringan kurva paling stabil dan efisien karena tidak membuang-buang daya ketika lingkungan sudah bersih."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 5. Tugas Mandiri Pemrograman (Coding Challenge)\n",
+    "\n",
+    "### Skenario Batasan Sumber Daya Nyata (Resource Constraint)\n",
+    "Di lapangan, sprayer pestisida memiliki tangki terbatas. Anggap agen dibekali kapasitas awal `tank_capacity = 3` unit pestisida.\n",
+    "- Setiap kali aksi `'SEMPROT'`, kapasitas tangki berkurang 1.\n",
+    "- Jika agen mencoba `'SEMPROT'` saat tangki kosong (`0`), aktuator macet dan agen dikenai penalti fatal **-10 poin**!\n",
+    "- Agen dapat melakukan aksi `'ISI_ULANG'` hanya jika ia berada di Petak A (Markas). Aksi ini memulihkan tangki menjadi 3 unit dengan imbalan netral (0 poin).\n",
+    "\n",
+    "**Tugas Anda:** Lengkapi kelas `SmartCapacityAgent` di bawah ini agar agen secara cerdas tahu kapan harus pulang ke petak A untuk mengisi ulang sebelum tangkinya benar-benar habis saat menemukan hama!"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": None,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "class SmartCapacityAgent:\n",
+    "    \"\"\"Agen cerdas dengan kesadaran kapasitas tangki bahan kimia (Resource-Aware Agent).\"\"\"\n",
+    "    \n",
+    "    def __init__(self):\n",
+    "        # Kapasitas awal tangki bahan kimia diset sebanyak 3 unit\n",
+    "        self.tank_capacity: int = 3\n",
+    "        # Model internal status kesehatan petak kebun\n",
+    "        self.internal_model: Dict[str, str] = {'A': 'UNKNOWN', 'B': 'UNKNOWN'}\n",
+    "        \n",
+    "    def act(self, percept: Tuple[str, str]) -> str:\n",
+    "        # Membongkar persepsi sensor saat ini\n",
+    "        location, status = percept\n",
+    "        # Memperbarui memori status petak terkini\n",
+    "        self.internal_model[location] = status\n",
+    "        \n",
+    "        # ======================================================================\n",
+    "        # TUGAS MAHASISWA: Tuliskan logika rasionalitas Anda di bawah ini:\n",
+    "        # 1. Periksa apakah tangki habis (0)\n",
+    "        # 2. Jika habis dan sedang di A -> lakukan 'ISI_ULANG' dan set tank_capacity = 3\n",
+    "        # 3. Jika habis dan sedang di B -> bergerak 'KIRI' untuk pulang ke markas A\n",
+    "        # 4. Jika tangki > 0 dan ada hama -> lakukan 'SEMPROT' dan kurangi tangki -= 1\n",
+    "        # ======================================================================\n",
+    "        \n",
+    "        # Logika proteksi dasar (Dapat Anda kembangkan lebih optimal):\n",
+    "        if self.tank_capacity == 0:\n",
+    "            if location == 'A':\n",
+    "                # Mengisi ulang tangki pestisida di markas petak A\n",
+    "                self.tank_capacity = 3\n",
+    "                return 'ISI_ULANG'\n",
+    "            else:\n",
+    "                # Pulang ke markas di petak A\n",
+    "                return 'KIRI'\n",
+    "                \n",
+    "        if status == 'TERSERANG_HAMA' and self.tank_capacity > 0:\n",
+    "            # Mengurangi stok tangki bahan kimia sebesar 1 unit\n",
+    "            self.tank_capacity -= 1\n",
+    "            return 'SEMPROT'\n",
+    "            \n",
+    "        other_loc = 'B' if location == 'A' else 'A'\n",
+    "        if self.internal_model[other_loc] != 'BERSIH':\n",
+    "            return 'KANAN' if location == 'A' else 'KIRI'\n",
+    "            \n",
+    "        return 'DIAM'\n",
+    "\n",
+    "# Menguji coba instansiasi agen Anda\n",
+    "test_agent = SmartCapacityAgent()\n",
+    "print(f\"Agen Mandiri Berhasil Diinisialisasi! Sisa Tangki Awal: {test_agent.tank_capacity}\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 6. Rubrik Penilaian Praktikum Mandiri\n",
+    "\n",
+    "| Kriteria Penilaian | Bobot | Indikator Keberhasilan |\n",
+    "| :--- | :--- | :--- |\n",
+    "| **Komentar dan Kerapihan Kode** | 20% | Setiap baris logika yang ditambahkan diberi komentar fungsi yang jelas dan mengikuti kaidah PEP 8. |\n",
+    "| **Ketahanan Logika (No Runtime Crash)** | 40% | Agen tidak pernah memicu penalti `-10` (tidak pernah menyemprot saat tangki 0) dalam 100 langkah simulasi. |\n",
+    "| **Efisiensi Pengambilan Keputusan** | 40% | Agen mampu kembali ke markas A tepat waktu untuk isi ulang tanpa berputar-putar tanpa arah. |"
+   ]
+  }
+ ],
+ "metadata": {
+  "language_info": {
+   "name": "python"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
+
+with open("e:/Project Buku/notebooks/part-01/AI_Modul_1.1_Praktikum_Konsep_Dasar_AI.ipynb", "w", encoding="utf-8") as f:
+    json.dump(notebook, f, indent=1)
+
+print("Notebook 1.1 with line-by-line comments regenerated successfully!")

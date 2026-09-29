@@ -1,0 +1,259 @@
+import json
+
+nb = {
+    "cells": [
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "# AI Modul 9.2: Praktikum Representasi Citra Digital dan Matriks Piksel\n",
+                "**Mata Kuliah:** Visi Komputer dan Kecerdasan Buatan Terapan  \n",
+                "**Institut Pertanian Stiper (INSTIPER) Yogyakarta**  \n",
+                "\n",
+                "---\n",
+                "\n",
+                "### Capaian Pembelajaran Praktikum:\n",
+                "1. Memahami struktur representasi matriks citra digital 2D (Grayscale) dan tensor 3D (RGB/BGR) menggunakan NumPy dan OpenCV.\n",
+                "2. Mampu mengekstraksi dan memanipulasi Region of Interest (ROI) pada komoditas kelapa sawit dengan mekanisme deep copy yang aman.\n",
+                "3. Mampu membuktikan disparitas perilaku aritmatika piksel `uint8` antara NumPy modulo vs OpenCV bersaturasi.\n",
+                "4. Mampu merancang fungsi Lookup Table (LUT) untuk transformasi kontras linier dan koreksi gamma non-linier guna mencerahkan bayangan kanopi perkebunan.\n",
+                "5. Mampu mendeteksi fenomena kuantisasi *false contouring* akibat reduksi kedalaman bit citra.\n"
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "import numpy as np\n",
+                "import cv2\n",
+                "import matplotlib.pyplot as plt\n",
+                "\n",
+                "# Konfigurasi visualisasi\n",
+                "plt.style.use('seaborn-v0_8-whitegrid' if 'seaborn-v0_8-whitegrid' in plt.style.available else 'default')\n",
+                "print(f'OpenCV Version : {cv2.__version__}')\n",
+                "print(f'NumPy Version  : {np.__version__}')\n"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "## 1. Pembangkitan Matriks Citra Sintetis & Karakteristik Tensor\n",
+                "Kita membangkitkan citra sintetis brondolan kelapa sawit (*oil palm fruitlet*) dengan gradasi kematangan warna (merah-oranye mesokarp) pada latar belakang gelap."
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "width, height = 300, 300\n",
+                "palm_fruit = np.ones((height, width, 3), dtype=np.uint8) * 35  # Background gelap\n",
+                "\n",
+                "Y, X = np.meshgrid(np.arange(height), np.arange(width), indexing='ij')\n",
+                "cy, cx = height // 2, width // 2\n",
+                "\n",
+                "# Geometri elips brondolan sawit\n",
+                "a, b = 100.0, 70.0\n",
+                "mask = ((X - cx) / b)**2 + ((Y - cy) / a)**2 <= 1.0\n",
+                "\n",
+                "y_norm = np.clip((Y - (cy - a)) / (2 * a), 0.0, 1.0)\n",
+                "# Saluran Merah (R): Tinggi di badan buah\n",
+                "palm_fruit[mask, 0] = np.clip(180 + 75 * (1.0 - y_norm[mask]), 0, 255).astype(np.uint8)\n",
+                "# Saluran Hijau (G): Gradasi kematangan menuju dasar\n",
+                "palm_fruit[mask, 1] = np.clip(35 + 85 * (1.0 - y_norm[mask]**2), 0, 255).astype(np.uint8)\n",
+                "# Saluran Biru (B): Rendah khas buah sawit matang\n",
+                "palm_fruit[mask, 2] = np.clip(15 + 15 * y_norm[mask], 0, 255).astype(np.uint8)\n",
+                "\n",
+                "print('=== PROFIL TENSOR CITRA SAWIT ===')\n",
+                "print(f'Dimensi Array (H, W, C) : {palm_fruit.shape}')\n",
+                "print(f'Tipe Data Elemen        : {palm_fruit.dtype}')\n",
+                "print(f'Ukuran Memori Total     : {palm_fruit.nbytes:,} Bytes ({palm_fruit.nbytes / 1024:.2f} KB)')\n",
+                "print(f'Rentang Nilai Intensitas: Min = {palm_fruit.min()}, Max = {palm_fruit.max()}')\n"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "## 2. Ekstraksi Region of Interest (ROI) & Pembuktian View vs Copy\n",
+                "Dalam NumPy, pengirisan `img[y1:y2, x1:x2]` membentuk *view* (referensi memori bersama). Memodifikasi *view* akan merusak citra asal, sehingga wajib menggunakan `.copy()` jika data mentah harus dipertahankan."
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# Ekstraksi ROI Bagian Inti Buah Sawit Menggunakan .copy()\n",
+                "ymin, ymax = 100, 200\n",
+                "xmin, xmax = 100, 200\n",
+                "roi_safe = palm_fruit[ymin:ymax, xmin:xmax].copy()\n",
+                "\n",
+                "# Ekstraksi ROI View (Referensi Berbahaya)\n",
+                "fruit_demo = palm_fruit.copy()\n",
+                "roi_view = fruit_demo[ymin:ymax, xmin:xmax]\n",
+                "# Mengubah ROI view menjadi putih pekat\n",
+                "roi_view[:, :] = [255, 255, 255]\n",
+                "\n",
+                "fig, axes = plt.subplots(1, 3, figsize=(15, 4))\n",
+                "axes[0].imshow(palm_fruit)\n",
+                "axes[0].set_title('(A) Citra Asli Utuh')\n",
+                "axes[0].axis('off')\n",
+                "\n",
+                "axes[1].imshow(roi_safe)\n",
+                "axes[1].set_title(f'(B) ROI Terisolasi (.copy()) {roi_safe.shape}')\n",
+                "axes[1].axis('off')\n",
+                "\n",
+                "axes[2].imshow(fruit_demo)\n",
+                "axes[2].set_title('(C) Dampak Mutasi Memori pada View')\n",
+                "axes[2].axis('off')\n",
+                "plt.tight_layout()\n",
+                "plt.show()\n"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "## 3. Bahaya Aritmatika Piksel uint8: Modulo vs Saturasi\n",
+                "Tipe data `uint8` berada pada rentang $[0, 255]$. Penjumlahan murni NumPy bersifat modulo (meluap kembali ke 0), sedangkan OpenCV menggunakan fungsi jenuh bersaturasi `cv2.add`."
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "# Uji Penambahan Kecerahan +60 pada Citra Sawit\n",
+                "brightness_bias = 60\n",
+                "\n",
+                "# Alternatif A: NumPy Add (Modulo 256)\n",
+                "img_numpy_overflow = palm_fruit + brightness_bias\n",
+                "\n",
+                "# Alternatif B: OpenCV Add (Saturasi [0, 255])\n",
+                "bias_array = np.full(palm_fruit.shape, brightness_bias, dtype=np.uint8)\n",
+                "img_opencv_saturated = cv2.add(palm_fruit, bias_array)\n",
+                "\n",
+                "fig, axes = plt.subplots(1, 3, figsize=(15, 4))\n",
+                "axes[0].imshow(palm_fruit)\n",
+                "axes[0].set_title('(A) Citra Asli (Rerata = {:.1f})'.format(palm_fruit.mean()))\n",
+                "axes[0].axis('off')\n",
+                "\n",
+                "axes[1].imshow(img_numpy_overflow)\n",
+                "axes[1].set_title('(B) NumPy Add (Cacat Overflow Modulo)')\n",
+                "axes[1].axis('off')\n",
+                "\n",
+                "axes[2].imshow(img_opencv_saturated)\n",
+                "axes[2].set_title('(C) OpenCV Add (Saturasi Sempurna)')\n",
+                "axes[2].axis('off')\n",
+                "plt.tight_layout()\n",
+                "plt.show()\n"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "## 4. Transformasi Intensitas Titik: Koreksi Gamma Adaptif via Lookup Table (LUT)\n",
+                "Fungsi non-linier $s = r^{1/\\gamma}$ mencerahkan area gelap berbayang (ketika $\\gamma > 1.0$) atau meredam area silau (ketika $\\gamma < 1.0$). Penggunaan tabel pemetaan `cv2.LUT` menjamin eksekusi $\\mathcal{O}(1)$ tanpa overhead perhitungan eksponensial per piksel."
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "def gamma_correction(image, gamma=1.0):\n",
+                "    inv_gamma = 1.0 / gamma\n",
+                "    lut = np.array([\n",
+                "        np.clip(((i / 255.0) ** inv_gamma) * 255.0, 0, 255)\n",
+                "        for i in range(256)\n",
+                "    ], dtype=np.uint8)\n",
+                "    return cv2.LUT(image, lut)\n",
+                "\n",
+                "# Uji Tiga Nilai Gamma\n",
+                "fruit_gamma_05 = gamma_correction(palm_fruit, gamma=0.5)  # Meredam silau / menggelapkan\n",
+                "fruit_gamma_10 = gamma_correction(palm_fruit, gamma=1.0)  # Identitas\n",
+                "fruit_gamma_22 = gamma_correction(palm_fruit, gamma=2.2)  # Mencerahkan bayangan gelap\n",
+                "\n",
+                "fig, axes = plt.subplots(1, 3, figsize=(15, 4))\n",
+                "axes[0].imshow(fruit_gamma_05)\n",
+                "axes[0].set_title('(A) Gamma = 0.5 (Peredaman Highlights)')\n",
+                "axes[0].axis('off')\n",
+                "\n",
+                "axes[1].imshow(fruit_gamma_10)\n",
+                "axes[1].set_title('(B) Gamma = 1.0 (Identitas Asli)')\n",
+                "axes[1].axis('off')\n",
+                "\n",
+                "axes[2].imshow(fruit_gamma_22)\n",
+                "axes[2].set_title('(C) Gamma = 2.2 (Pencerahan Detail Bayangan)')\n",
+                "axes[2].axis('off')\n",
+                "plt.tight_layout()\n",
+                "plt.show()\n"
+            ]
+        },
+        {
+            "cell_type": "markdown",
+            "metadata": {},
+            "source": [
+                "## 5. Simulasi Kuantisasi Intensitas & Efek False Contouring\n",
+                "Ketika kedalaman bit direduksi dari 8-bit (256 tingkat) menjadi 4-bit (16 tingkat) atau 2-bit (4 tingkat), gradasi warna halus akan pecah menjadi garis batas kontur semu (*false contouring / banding*)."
+            ]
+        },
+        {
+            "cell_type": "code",
+            "execution_count": None,
+            "metadata": {},
+            "outputs": [],
+            "source": [
+                "def quantize_bits(image, bits):\n",
+                "    levels = 2 ** bits\n",
+                "    step = 256 // levels\n",
+                "    return ((image // step) * step).astype(np.uint8)\n",
+                "\n",
+                "fruit_8bit = palm_fruit\n",
+                "fruit_4bit = quantize_bits(palm_fruit, bits=4)  # 16 Level\n",
+                "fruit_2bit = quantize_bits(palm_fruit, bits=2)  # 4 Level\n",
+                "\n",
+                "fig, axes = plt.subplots(1, 3, figsize=(15, 4))\n",
+                "axes[0].imshow(fruit_8bit)\n",
+                "axes[0].set_title('(A) Kedalaman 8-bit (256 Tingkat Warna)')\n",
+                "axes[0].axis('off')\n",
+                "\n",
+                "axes[1].imshow(fruit_4bit)\n",
+                "axes[1].set_title('(B) Kedalaman 4-bit (16 Tingkat: Muncul Banding)')\n",
+                "axes[1].axis('off')\n",
+                "\n",
+                "axes[2].imshow(fruit_2bit)\n",
+                "axes[2].set_title('(C) Kedalaman 2-bit (4 Tingkat: Kontur Palsu Parah)')\n",
+                "axes[2].axis('off')\n",
+                "plt.tight_layout()\n",
+                "plt.show()\n"
+            ]
+        }
+    ],
+    "metadata": {
+        "kernelspec": {
+            "display_name": "Python 3",
+            "language": "python",
+            "name": "python3"
+        },
+        "language_info": {
+            "name": "python",
+            "version": "3.10.8"
+        }
+    },
+    "nbformat": 4,
+    "nbformat_minor": 2
+}
+
+with open("notebooks/part-09/AI_Modul_9.2_Praktikum_Representasi_Citra_Digital_dan_Matriks_Piksel.ipynb", "w", encoding="utf-8") as f:
+    json.dump(nb, f, indent=1, ensure_ascii=False)
+print("Successfully generated: notebooks/part-09/AI_Modul_9.2_Praktikum_Representasi_Citra_Digital_dan_Matriks_Piksel.ipynb")
