@@ -37,3 +37,19 @@ desktop.ini
 scratch/
 tmp/
 *.tmp
+
+# Local textbook materials, documentation, and generators (Retained locally, excluded from public GitHub repo)
+docs/
+docx/
+instructor_resources/
+slides/
+pptx/
+src/
+
+# Generated models, multimedia, and local scripts
+*.pt
+*.onnx
+*.png
+*.jpg
+*.mp4
+*.py
