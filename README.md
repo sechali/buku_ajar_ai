@@ -1,4 +1,4 @@
-# Buku Praktikum AI & Sains Data Pertanian Presisi
+# AI Academy: Buku Praktikum Interaktif
 ### *100 Interactive Jupyter Notebooks for Precision Agriculture & Palm Oil Agro-Industry*
 
 [![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
@@ -12,7 +12,7 @@
 
 ## 📌 Ringkasan Eksekutif (Executive Summary)
 
-Repositori ini memuat **100 Buku Kerja Praktikum Interaktif (Jupyter Notebooks)** untuk mata kuliah **Kecerdasan Buatan dan Sains Data Pertanian Presisi**. 
+Repositori ini memuat **100 Buku Kerja Praktikum Interaktif (Jupyter Notebooks)** untuk mata kuliah **AI Academy**. 
 
 Dirancang secara khusus untuk menjembatani disiplin **Teknik Informatika, Sains Data, dan Agroteknologi**, seluruh *notebook* mengintegrasikan implementasi kode Python berstandar industri dengan kasus nyata agroindustri perkebunan kelapa sawit dan pertanian presisi tropis di Indonesia.
 
