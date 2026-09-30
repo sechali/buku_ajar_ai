@@ -41,6 +41,7 @@ tmp/
 # Local textbook materials, documentation, and generators (Retained locally, excluded from public GitHub repo)
 docs/
 docx/
+curriculum/
 instructor_resources/
 slides/
 pptx/
